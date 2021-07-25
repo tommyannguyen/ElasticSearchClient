@@ -41,6 +41,10 @@ namespace Nca.ElaticClient.App
             var importData = false;
             if (importData)
             {
+                var maxDate = DateTime.MaxValue;
+                var lastCreatedDate = DateTime.Now.AddDays(1);
+                var secondCreatedDate = DateTime.Now.AddDays(-1);
+                var thirdCreatedDate = DateTime.Now.AddDays(-2);
                 // insert or update
                 for (var i = 0; i < maxNumber; i++)
                 {
@@ -53,11 +57,11 @@ namespace Nca.ElaticClient.App
                         Tags = new List<TagLog>()
                     {
                         // valid
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i}", "tagtest2"}, CreationDate = DateTime.Now.AddDays(1) },
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i}", "tagtest2" , "ggg"}, CreationDate = lastCreatedDate , DeletionDate = maxDate},
 
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-1}", $"tag{i-1}"}, CreationDate = DateTime.Now.AddDays(-1) },
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-1}", $"tag{i-1}", "ggg"}, CreationDate = secondCreatedDate, DeletionDate = lastCreatedDate },
 
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-3}", $"tag{i-3}"}, CreationDate = DateTime.Now.AddDays(-2) }
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-3}", $"tag{i-3}", "ggg"}, CreationDate = thirdCreatedDate, DeletionDate = secondCreatedDate }
                     }
                     };
 
@@ -72,41 +76,120 @@ namespace Nca.ElaticClient.App
 
             var date = DateTime.Now;
             var dateNow = DateMath.Anchored(date);
-            var searchResponse = client.Search<Entity>(s => s
-                                        .Index(entityIndex)
-                                        .From(0)
-                                        .Size(maxNumber)
-                                        .Query(q => q
-                                            .Nested(c => c
-                                                    .Boost(1.1)
-                                                    .InnerHits(i => i.Explain())
-                                                    .Path(p => p.Tags)
-                                                    .Query(tags => +tags
-                                                        .DateRange(d => d
-                                                            .Field(r => r.Tags.First().CreationDate)
-                                                            .LessThanOrEquals(dateNow)
-                                                        ) && +tags
-                                                        // .MatchPhrase(t => t
-                                                        //     .Field(f => f.Tags.First().Name)
-                                                        //     .Query("log 99")
-                                                        // ) && +tags
-                                                        .Terms(t => t
-                                                            .Field(f => f.Tags.First().Tags)
-                                                            .Terms("tag95", "tag96")
-                                                        )
-                                                    )
-                                                    .IgnoreUnmapped()
-                                                )
-                                    ));
+            var query = GetTrackScores();
 
-            //var searchResponse = client.Search<Entity>();
-           
+            var searchResponse = client.Search<Entity>(query);
+
+
             var items = searchResponse.Documents;
-            Console.WriteLine($"total: {searchResponse.Total}. Time ms: {searchResponse.Took}");
+            Console.WriteLine($"Query {date}.total: {searchResponse.Total}. Time ms: {searchResponse.Took}");
             foreach (var document in items)
             {
-                Console.WriteLine($"Id: {document.Id} - Name:{document.Name} - {document.Tags.First().CreationDate}");
+                double score = 0;
+                if (searchResponse.HitsMetadata != null && searchResponse.HitsMetadata.Hits != null)
+                {
+                    var hit = searchResponse.HitsMetadata?.Hits.FirstOrDefault(h => h.Id.Equals(document.Id.ToString()));
+                    if (hit != null && hit.Score.HasValue)
+                    {
+                        score = hit.Score.Value;
+                    }
+                }
+                Console.WriteLine($"Id: {document.Id}- Score: {score} - Name:{document.Name} - {document.Tags.First().CreationDate}");
             }
         }
+        private static SearchDescriptor<Entity> GetTrackScores()
+        {
+            var s = new SearchDescriptor<Entity>();
+            var entityIndex = "entities";
+            var date = DateTime.Now;
+            var dateNow = DateMath.Anchored(date);
+            return s
+            .Index(entityIndex)
+            .From(0)
+            .Size(100)
+            .TrackScores(true)
+            .Sort(sort => sort.Descending(SortSpecialField.Score))
+            .Query(q => q
+                .Match(mm => mm
+                            .Boost(1.1)
+                            .Field(fff => fff.Name)
+                                .Query("profressor")
+                ) | q
+                .Nested(c => c
+                    .ScoreMode(NestedScoreMode.Sum)
+                    .Boost(2.1)
+                    //.InnerHits(i => i.Explain())
+                    .IgnoreUnmapped()
+                    .Path(p => p.Tags)
+                    .Query(tags => tags
+                        .DateRange(d => d
+                            .Field(r => r.Tags.First().CreationDate)
+                            .LessThan(dateNow)
+                        ) && +tags
+                        .DateRange(d => d
+                            .Field(r => r.Tags.First().DeletionDate)
+                            .GreaterThan(dateNow)
+                        ) && +tags
+                        // .MatchPhrase(t => t
+                        //     .Field(f => f.Tags.First().Name)
+                        //     .Query("log 99")
+                        // ) && +tag
+                        .Terms(t => t
+                            .Boost(0.5)
+                            .Field(f => f.Tags.First().Tags)
+                            .Terms("tag94", "tag95")
+                        )
+                    )
+                ) | q
+                .MatchAll()
+            );
+        }
+        private static SearchDescriptor<Entity> GetQuery()
+        {
+            var s = new SearchDescriptor<Entity>();
+            var entityIndex = "entities";
+            var date = DateTime.Now;
+            var dateNow = DateMath.Anchored(date);
+
+            return s
+            .Index(entityIndex)
+            .From(0)
+            .Size(100)
+            .TrackScores(true)
+            .TrackScores(true)
+            .Sort(sort => sort.Descending(SortSpecialField.Score))
+            .Query(q => q
+                .Bool(b => b
+                    .Should(m => m
+                        .Nested(c => c
+                            .Path(p => p.Tags)
+                            .Boost(1.3)
+                            .Query(tags => +tags
+                                .DateRange(d => d
+                                    .Field(r => r.Tags.First().CreationDate)
+                                    .LessThan(dateNow)
+                                ) && +tags
+                                .DateRange(d => d
+                                    .Field(r => r.Tags.First().DeletionDate)
+                                    .GreaterThan(dateNow)
+                                ) && +tags
+                                // .MatchPhrase(t => t
+                                //     .Field(f => f.Tags.First().Name)
+                                //     .Query("log 99")
+                                // ) && +tags
+                                .Terms(t => t
+                                    .Field(f => f.Tags.First().Tags)
+                                    .Terms("tag94", "tag95", "ggg")
+                                )
+                            )
+                        )
+                    )
+                    .Must(f => f.MatchAll())
+                    //.MinimumShouldMatch(1)
+                    .Boost(1))
+
+            );
+        }
+
     }
 }

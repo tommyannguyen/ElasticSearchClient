@@ -14,4 +14,5 @@ public class TagLog
     public string Name { get; set; }
     public List<string> Tags { get; set; }
     public DateTime CreationDate { get; set; }
+    public DateTime DeletionDate { get; set; }
 }
