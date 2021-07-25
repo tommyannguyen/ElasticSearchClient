@@ -57,11 +57,11 @@ namespace Nca.ElaticClient.App
                         Tags = new List<TagLog>()
                     {
                         // valid
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i}", "tagtest2" , "ggg"}, CreationDate = lastCreatedDate , DeletionDate = maxDate},
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag_id{i}", $"tag{i}", "tagtest2" , "ggg"}, CreationDate = lastCreatedDate , DeletionDate = maxDate},
 
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-1}", $"tag{i-1}", "ggg"}, CreationDate = secondCreatedDate, DeletionDate = lastCreatedDate },
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag_id{i}",$"tag{i-1}", $"tag{i-1}", "ggg"}, CreationDate = secondCreatedDate, DeletionDate = lastCreatedDate },
 
-                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag{i-3}", $"tag{i-3}", "ggg"}, CreationDate = thirdCreatedDate, DeletionDate = secondCreatedDate }
+                        new TagLog(){ Id = 1, Name = $"log {i}", Tags = new List<string>() {$"tag_id{i}",$"tag{i-3}", $"tag{i-3}", "ggg"}, CreationDate = thirdCreatedDate, DeletionDate = secondCreatedDate }
                     }
                     };
 
@@ -80,7 +80,6 @@ namespace Nca.ElaticClient.App
 
             var searchResponse = client.Search<Entity>(query);
 
-
             var items = searchResponse.Documents;
             Console.WriteLine($"Query {date}.total: {searchResponse.Total}. Time ms: {searchResponse.Took}");
             foreach (var document in items)
@@ -92,6 +91,13 @@ namespace Nca.ElaticClient.App
                     if (hit != null && hit.Score.HasValue)
                     {
                         score = hit.Score.Value;
+                        if (hit.Fields != null)
+                        {
+                            foreach (var item in hit.Fields)
+                            {
+                                Console.WriteLine($"Key-{item.Key}: {item.Value}");
+                            }
+                        }
                     }
                 }
                 Console.WriteLine($"Id: {document.Id}- Score: {score} - Name:{document.Name} - {document.Tags.First().CreationDate}");
@@ -103,18 +109,21 @@ namespace Nca.ElaticClient.App
             var entityIndex = "entities";
             var date = DateTime.Now;
             var dateNow = DateMath.Anchored(date);
+            var searchTerms = new List<string>() { "tag94", "tag95", "ggg" };
+           
             return s
             .Index(entityIndex)
             .From(0)
-            .Size(100)
+            .Size(10)
             .TrackScores(true)
+            .Explain()
             .Sort(sort => sort.Descending(SortSpecialField.Score))
             .Query(q => q
-                .Match(mm => mm
-                            .Boost(1.1)
-                            .Field(fff => fff.Name)
-                                .Query("profressor")
-                ) | q
+                // .Match(mm => mm
+                //             .Boost(1.1)
+                //             .Field(fff => fff.Name)
+                //                 .Query("profressor")
+                // ) | q
                 .Nested(c => c
                     .ScoreMode(NestedScoreMode.Sum)
                     .Boost(2.1)
@@ -123,22 +132,24 @@ namespace Nca.ElaticClient.App
                     .Path(p => p.Tags)
                     .Query(tags => tags
                         .DateRange(d => d
+                            .Boost(0.1)
                             .Field(r => r.Tags.First().CreationDate)
                             .LessThan(dateNow)
                         ) && +tags
                         .DateRange(d => d
+                            .Boost(0.1)
                             .Field(r => r.Tags.First().DeletionDate)
                             .GreaterThan(dateNow)
                         ) && +tags
+                        .Terms(t => t
+                            .Boost(0.5)
+                            .Field(f => f.Tags.First().Tags)
+                            .Terms("tag_id95", "tag95", "tag94", "tag99")
+                        )
                         // .MatchPhrase(t => t
                         //     .Field(f => f.Tags.First().Name)
                         //     .Query("log 99")
                         // ) && +tag
-                        .Terms(t => t
-                            .Boost(0.5)
-                            .Field(f => f.Tags.First().Tags)
-                            .Terms("tag94", "tag95")
-                        )
                     )
                 ) | q
                 .MatchAll()
@@ -150,12 +161,42 @@ namespace Nca.ElaticClient.App
             var entityIndex = "entities";
             var date = DateTime.Now;
             var dateNow = DateMath.Anchored(date);
+            var searchTerms = new List<string>() { "tag94", "tag95", "ggg" };
+            Func<QueryContainerDescriptor<Entity>, QueryContainer> getSelector = tags =>
+            {
+                var container = +tags
+                 .DateRange(d => d
+                      .Field(r => r.Tags.First().CreationDate)
+                      .LessThan(dateNow)
+                  ) && +tags
+                  .DateRange(d => d
+                      .Field(r => r.Tags.First().DeletionDate)
+                      .GreaterThan(dateNow)
+                  );
+                for (var i = 0; i < searchTerms.Count - 1; i++)
+                {
+                    var list = new List<string>();
+                    for (var j = 0; j < i; j++)
+                    {
+                        list.Add(searchTerms[j]);
+                    }
+                    if (list.Any())
+                    {
+                        Console.WriteLine($"terms : {string.Join(",", list)}");
 
+                        tags
+                        .Terms(t => t
+                        .Field(f => f.Tags.First().Tags)
+                        .Terms(list));
+                    }
+                }
+
+                return container;
+            };
             return s
             .Index(entityIndex)
             .From(0)
             .Size(100)
-            .TrackScores(true)
             .TrackScores(true)
             .Sort(sort => sort.Descending(SortSpecialField.Score))
             .Query(q => q
@@ -164,24 +205,7 @@ namespace Nca.ElaticClient.App
                         .Nested(c => c
                             .Path(p => p.Tags)
                             .Boost(1.3)
-                            .Query(tags => +tags
-                                .DateRange(d => d
-                                    .Field(r => r.Tags.First().CreationDate)
-                                    .LessThan(dateNow)
-                                ) && +tags
-                                .DateRange(d => d
-                                    .Field(r => r.Tags.First().DeletionDate)
-                                    .GreaterThan(dateNow)
-                                ) && +tags
-                                // .MatchPhrase(t => t
-                                //     .Field(f => f.Tags.First().Name)
-                                //     .Query("log 99")
-                                // ) && +tags
-                                .Terms(t => t
-                                    .Field(f => f.Tags.First().Tags)
-                                    .Terms("tag94", "tag95", "ggg")
-                                )
-                            )
+                            .Query(getSelector)
                         )
                     )
                     .Must(f => f.MatchAll())
