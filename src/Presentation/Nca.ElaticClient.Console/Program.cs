@@ -232,7 +232,6 @@ namespace Nca.ElaticClient.App
                         )
                     )
                     .Must(f => f.MatchAll())
-                    //.MinimumShouldMatch(1)
                     .Boost(1))
 
             );
