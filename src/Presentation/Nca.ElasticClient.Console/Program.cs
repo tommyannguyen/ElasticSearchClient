@@ -109,7 +109,7 @@ namespace Nca.ElaticClient.App
             var container = tags.Terms(t => t
                             .Boost(0.1)
                             .Field(f => f.Tags.First().Tags)
-                            .Terms("tag_id95", "tag95", "tag94", "tag99")
+                            .Terms(searchTerms)
                         );
             foreach(var tag in searchTerms)
             {
@@ -160,19 +160,6 @@ namespace Nca.ElaticClient.App
                             .Field(r => r.Tags.First().DeletionDate)
                             .GreaterThan(dateNow)
                         ) && BuildSearchTerms(tags) 
-                        // .MultiMatch(mm => mm
-                        //     .Query("tag")
-                        //     .Fields(f => f.Field(ff => ff.Tags.First()))
-                        // )
-                        // .Terms(t => t
-                        //     .Boost(0.5)
-                        //     .Field(f => f.Tags.First().Tags)
-                        //     .Terms("tag_id95", "tag95", "tag94", "tag99")
-                        // )
-                        // .MatchPhrase(t => t
-                        //     .Field(f => f.Tags.First().Name)
-                        //     .Query("log 99")
-                        // ) && +tag
                     )
                 ) | q
                 .MatchAll()
