@@ -25,7 +25,6 @@ namespace Nca.ElaticClient.App
                                                 .Nested<TagLog>(n => n
                                                   .AutoMap()
                                                   .Name(nn => nn.Tags))
-
                                             )
                                         )
                                     );
@@ -103,14 +102,34 @@ namespace Nca.ElaticClient.App
                 Console.WriteLine($"Id: {document.Id}- Score: {score} - Name:{document.Name} - {document.Tags.First().CreationDate}");
             }
         }
+
+        private static List<string> searchTerms = new List<string>() {"tag_id95" ,"tag94", "tag95", "ggg" };
+        private static QueryContainer BuildSearchTerms(QueryContainerDescriptor<Entity> tags)
+        {
+            var container = tags.Terms(t => t
+                            .Boost(0.1)
+                            .Field(f => f.Tags.First().Tags)
+                            .Terms("tag_id95", "tag95", "tag94", "tag99")
+                        );
+            foreach(var tag in searchTerms)
+            {
+                Console.WriteLine($"tag - {tag}");
+                container = container | tags.Terms(t => t
+                            .Boost(0.1)
+                            .Field(f => f.Tags.First().Tags)
+                            .Terms(tag)
+                        );
+            }
+            return container;
+        }
         private static SearchDescriptor<Entity> GetTrackScores()
         {
             var s = new SearchDescriptor<Entity>();
             var entityIndex = "entities";
             var date = DateTime.Now;
             var dateNow = DateMath.Anchored(date);
-            var searchTerms = new List<string>() { "tag94", "tag95", "ggg" };
-           
+
+
             return s
             .Index(entityIndex)
             .From(0)
@@ -127,7 +146,7 @@ namespace Nca.ElaticClient.App
                 .Nested(c => c
                     .ScoreMode(NestedScoreMode.Sum)
                     .Boost(2.1)
-                    //.InnerHits(i => i.Explain())
+                    .InnerHits(i => i.Explain())
                     .IgnoreUnmapped()
                     .Path(p => p.Tags)
                     .Query(tags => tags
@@ -140,12 +159,16 @@ namespace Nca.ElaticClient.App
                             .Boost(0.1)
                             .Field(r => r.Tags.First().DeletionDate)
                             .GreaterThan(dateNow)
-                        ) && +tags
-                        .Terms(t => t
-                            .Boost(0.5)
-                            .Field(f => f.Tags.First().Tags)
-                            .Terms("tag_id95", "tag95", "tag94", "tag99")
-                        )
+                        ) && BuildSearchTerms(tags) 
+                        // .MultiMatch(mm => mm
+                        //     .Query("tag")
+                        //     .Fields(f => f.Field(ff => ff.Tags.First()))
+                        // )
+                        // .Terms(t => t
+                        //     .Boost(0.5)
+                        //     .Field(f => f.Tags.First().Tags)
+                        //     .Terms("tag_id95", "tag95", "tag94", "tag99")
+                        // )
                         // .MatchPhrase(t => t
                         //     .Field(f => f.Tags.First().Name)
                         //     .Query("log 99")
